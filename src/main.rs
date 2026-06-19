@@ -1,4 +1,4 @@
-use axum::{Router, routing::post, Json};
+use axum::{Router, routing::get, extract::Query, Json};
 use serde::{Deserialize, Serialize};
 use shakmaty::{Chess, Position};
 use shakmaty::fen::Fen;
@@ -15,8 +15,20 @@ struct Resp{
     new_fen:String,
 }
 
-async fn get_move(Json(req):Json<Req>)->Json<Resp>{
-        let mut position=req.fen.parse::<Fen>()
+#[derive(Deserialize)]
+struct Pv{
+    moves:String,
+}
+
+#[derive(Deserialize)]
+struct LichessResp{
+    pvs:Vec<Pv>,
+}
+
+async fn get_move(Query(req):Query<Req>)->Json<Resp>{
+
+        let mut position:Chess=req.fen
+        .parse::<Fen>()
         .unwrap()
         .into_position::<Chess>(shakmaty::CastlingMode::Standard)
         .unwrap()
@@ -28,13 +40,16 @@ async fn get_move(Json(req):Json<Req>)->Json<Resp>{
         );
 
         let response=ureq::get(&lichess_call)
-        .call().unwrap()
-        .into_string().unwrap();
+        .call()
+        .unwrap()
+        .into_string()
+        .unwrap();
 
-        let lichess_response:RespLichess=
-                serde_json::from_str(&response).unwrap();
+        let lichess:LichessResp=
+        serde_json::from_str(&response)
+        .unwrap();
 
-        let best_move=lichess_response.pvs[0]
+        let best_move=lichess.pvs[0]
         .moves
         .split_whitespace()
         .next()
@@ -59,20 +74,10 @@ async fn get_move(Json(req):Json<Req>)->Json<Resp>{
         })
 }
 
-#[derive(Deserialize)]
-struct Pv{
-    moves:String,
-}
-
-#[derive(Deserialize)]
-struct RespLichess{
-    pvs:Vec<Pv>,
-}
-
 #[tokio::main]
 async fn main(){
         let app=Router::new()
-        .route("/move",post(get_move));
+        .route("/move",get(get_move));
 
         let listener=tokio::net::TcpListener::bind("0.0.0.0:3000")
         .await
