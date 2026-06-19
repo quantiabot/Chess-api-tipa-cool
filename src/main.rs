@@ -56,7 +56,7 @@ async fn get_move(Query(req):Query<Req>)->Json<Resp>{
     position=position.play(move_played).unwrap();
 
     let new_fen=Fen::from_position(
-        position.clone(),
+        &position.clone(),
         shakmaty::EnPassantMode::Legal,
     ).to_string();
 
