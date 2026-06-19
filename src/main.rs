@@ -91,7 +91,7 @@ async fn get_move(Query(req):Query<Req>)->Json<Resp>{
         .unwrap_or(position);
 
     let new_fen = Fen::from_position(
-        position,
+        &position,
         shakmaty::EnPassantMode::Legal,
     ).to_string();
 
