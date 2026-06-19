@@ -23,8 +23,8 @@ struct ApiResp{
 
 async fn get_move(Query(req):Query<Req>)->Json<Resp>{
 
-    let mut position = match req.fen.parse::<Fen>() {
-        Ok(f) => match f.into_position::<Chess>(shakmaty::CastlingMode::Standard) {
+    let mut position:Chess = match req.fen.parse::<Fen>() {
+        Ok(fen) => match fen.into_position::<Chess>(shakmaty::CastlingMode::Standard) {
             Ok(p) => p.into(),
             Err(_) => {
                 return Json(Resp{
@@ -111,6 +111,8 @@ async fn main(){
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
         .await
         .unwrap();
+
+    println!("running");
 
     axum::serve(listener, app).await.unwrap();
 }
