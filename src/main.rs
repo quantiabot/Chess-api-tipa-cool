@@ -23,58 +23,94 @@ struct ApiResp{
 
 async fn get_move(Query(req):Query<Req>)->Json<Resp>{
 
-    let mut position:Chess=req.fen
-        .parse::<Fen>()
-        .unwrap()
-        .into_position::<Chess>(shakmaty::CastlingMode::Standard)
-        .unwrap()
-        .into();
+    let mut position = match req.fen.parse::<Fen>() {
+        Ok(f) => match f.into_position::<Chess>(shakmaty::CastlingMode::Standard) {
+            Ok(p) => p.into(),
+            Err(_) => {
+                return Json(Resp{
+                    best_move:"0000".to_string(),
+                    new_fen:req.fen,
+                });
+            }
+        },
+        Err(_) => {
+            return Json(Resp{
+                best_move:"0000".to_string(),
+                new_fen:req.fen,
+            });
+        }
+    };
 
-    let url=format!(
+    let url = format!(
         "https://chess-api.com/v1?fen={}",
         urlencoding::encode(&req.fen)
     );
 
-    let response=ureq::get(&url)
-        .call()
-        .unwrap()
-        .into_string()
-        .unwrap();
+    let response = match ureq::get(&url).call() {
+        Ok(r) => r.into_string().unwrap_or_default(),
+        Err(_) => {
+            return Json(Resp{
+                best_move:"0000".to_string(),
+                new_fen:req.fen,
+            });
+        }
+    };
 
-    let api:ApiResp=serde_json::from_str(&response).unwrap();
+    let api: ApiResp = match serde_json::from_str(&response) {
+        Ok(v) => v,
+        Err(_) => {
+            return Json(Resp{
+                best_move:"0000".to_string(),
+                new_fen:req.fen,
+            });
+        }
+    };
 
-    let best=api.r#move
-        .or(api.bestMove)
-        .unwrap_or("0000".to_string());
+    let best = api.r#move.or(api.bestMove).unwrap_or("0000".to_string());
 
-    let move_played=best
-        .parse::<UciMove>()
-        .unwrap()
-        .to_move(&position)
-        .unwrap();
+    let move_played = match best.parse::<UciMove>() {
+        Ok(m) => match m.to_move(&position) {
+            Ok(mv) => mv,
+            Err(_) => {
+                return Json(Resp{
+                    best_move:best,
+                    new_fen:req.fen,
+                });
+            }
+        },
+        Err(_) => {
+            return Json(Resp{
+                best_move:best,
+                new_fen:req.fen,
+            });
+        }
+    };
 
-    position=position.play(move_played).unwrap();
+    position = match position.play(move_played) {
+        Ok(p) => p,
+        Err(_) => position,
+    };
 
-    let new_fen=Fen::from_position(
-        &position.clone(),
+    let new_fen = Fen::from_position(
+        position,
         shakmaty::EnPassantMode::Legal,
     ).to_string();
 
     Json(Resp{
         best_move:best,
-        new_fen
+        new_fen,
     })
 }
 
 #[tokio::main]
 async fn main(){
 
-    let app=Router::new()
-        .route("/move",get(get_move));
+    let app = Router::new()
+        .route("/move", get(get_move));
 
-    let listener=tokio::net::TcpListener::bind("0.0.0.0:3000")
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
         .await
         .unwrap();
 
-    axum::serve(listener,app).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
 }
