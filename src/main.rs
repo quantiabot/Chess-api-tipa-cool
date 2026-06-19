@@ -11,14 +11,14 @@ struct Req{
 
 #[derive(Serialize)]
 struct Resp{
-    best_move:String,
+    best_move:Option<String>,
     new_fen:String,
+    error:Option<String>,
 }
 
 #[derive(Deserialize)]
 struct ApiResp{
-    r#move: Option<String>,
-    bestMove: Option<String>,
+    r#move:Option<String>,
 }
 
 async fn get_move(Query(req):Query<Req>)->Json<Resp>{
@@ -28,67 +28,82 @@ async fn get_move(Query(req):Query<Req>)->Json<Resp>{
             Ok(p) => p.into(),
             Err(_) => {
                 return Json(Resp{
-                    best_move:"0000".to_string(),
+                    best_move:None,
                     new_fen:req.fen,
+                    error:Some("invalid fen".to_string()),
                 });
             }
         },
         Err(_) => {
             return Json(Resp{
-                best_move:"0000".to_string(),
+                best_move:None,
                 new_fen:req.fen,
+                error:Some("fen parse error".to_string()),
             });
         }
     };
 
-    let url = format!(
-        "https://chess-api.com/v1?fen={}",
-        urlencoding::encode(&req.fen)
-    );
-
-    let response = match ureq::get(&url).call() {
-        Ok(r) => r.into_string().unwrap_or_default(),
-        Err(_) => {
-            return Json(Resp{
-                best_move:"0000".to_string(),
-                new_fen:req.fen,
-            });
-        }
+    let response = match ureq::post("https://chess-api.com/v1")
+        .set("Content-Type", "application/json")
+        .send_json(ureq::json!({
+            "fen": req.fen
+        })) {
+            Ok(r) => r.into_string().unwrap_or_default(),
+            Err(_) => {
+                return Json(Resp{
+                    best_move:None,
+                    new_fen:req.fen,
+                    error:Some("api request failed".to_string()),
+                });
+            }
     };
 
     let api: ApiResp = match serde_json::from_str(&response) {
         Ok(v) => v,
         Err(_) => {
             return Json(Resp{
-                best_move:"0000".to_string(),
+                best_move:None,
                 new_fen:req.fen,
+                error:Some("invalid api response".to_string()),
             });
         }
     };
 
-    let best = api.r#move.or(api.bestMove).unwrap_or("0000".to_string());
+    let best = match api.r#move {
+        Some(m) => m,
+        None => {
+            return Json(Resp{
+                best_move:None,
+                new_fen:req.fen,
+                error:Some("no move returned".to_string()),
+            });
+        }
+    };
 
     let move_played = match best.parse::<UciMove>() {
         Ok(m) => match m.to_move(&position) {
             Ok(mv) => mv,
             Err(_) => {
                 return Json(Resp{
-                    best_move:best,
+                    best_move:Some(best),
                     new_fen:req.fen,
+                    error:Some("illegal move".to_string()),
                 });
             }
         },
         Err(_) => {
             return Json(Resp{
-                best_move:best,
+                best_move:Some(best),
                 new_fen:req.fen,
+                error:Some("move parse error".to_string()),
             });
         }
     };
 
-    position = position.clone()
-        .play(move_played)
-        .unwrap_or(position);
+    position = match position.clone().play(move_played) {
+        Ok(p) => p,
+        Err(_) => position,
+    };
 
     let new_fen = Fen::from_position(
         &position,
@@ -96,8 +111,9 @@ async fn get_move(Query(req):Query<Req>)->Json<Resp>{
     ).to_string();
 
     Json(Resp{
-        best_move:best,
+        best_move:Some(best),
         new_fen,
+        error:None,
     })
 }
 
