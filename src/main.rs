@@ -86,13 +86,12 @@ async fn get_move(Query(req):Query<Req>)->Json<Resp>{
         }
     };
 
-    position = match position.play(move_played) {
-        Ok(p) => p,
-        Err(_) => position,
-    };
+    position = position.clone()
+        .play(move_played)
+        .unwrap_or(position);
 
     let new_fen = Fen::from_position(
-        &position,
+        position,
         shakmaty::EnPassantMode::Legal,
     ).to_string();
 
@@ -111,8 +110,6 @@ async fn main(){
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
         .await
         .unwrap();
-
-    println!("running");
 
     axum::serve(listener, app).await.unwrap();
 }
